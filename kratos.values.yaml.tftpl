@@ -1,0 +1,250 @@
+ingress:
+  admin:
+    enabled: false
+  public:
+    enabled: true
+%{ if enable_https ~}
+    className: "${ingress_class_name}"
+    annotations:
+%{ if ingress_class_name == "traefik" ~}
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+%{ endif ~}
+%{ if ingress_class_name == "nginx" ~}
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+%{ endif ~}
+%{ endif ~}
+    hosts:
+      - host: ${kratos_sub_domain}.${domain_name}
+        paths:
+          - path: /
+            pathType: Prefix
+%{ if enable_https ~}
+    tls:
+      - hosts:
+          - ${kratos_sub_domain}.${domain_name}
+        secretName: ${ssl_secret_name != "" ? ssl_secret_name : "${kratos_release_name}-tls"}
+%{ endif ~}
+
+kratos:
+%{ if is_dev_mode ~}
+  development: true
+%{ endif ~}
+  config:
+%{ if is_dev_mode ~}
+    log:
+      level: trace
+      leak_sensitive_values: false
+%{ endif ~}
+    serve:
+      public:
+        base_url: ${enable_https ? "https" : "http"}://${kratos_sub_domain}.${domain_name}
+        cors:
+          enabled: true
+          allowed_origins:
+            - ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
+%{ for subdomain in apps_sub_domains ~}
+            - ${enable_https ? "https" : "http"}://${subdomain}.${domain_name}
+%{ endfor ~}
+      admin:
+        base_url: http://${kratos_release_name}-admin.${kratos_namespace}.svc.cluster.local.
+    dsn: postgres://${ory_db_username}:${ory_db_password}@${ory_db_chart_name}-postgresql:${ory_db_port}/${ory_db_name}
+    secrets:
+      default:
+        - ${kratos_secret_key}
+    cookies:
+      domain: ${domain_name}
+      same_site: Lax
+    session:
+      cookie:
+        domain: ${domain_name}
+        same_site: Lax
+    identity:
+      default_schema_id: default
+      schemas:
+        - id: default
+          url: file:///etc/config/identity.default.schema.json
+    courier:
+      smtp:
+        connection_uri: smtps://test:test@mailslurper:1025/?skip_ssl_verify=true
+    selfservice:
+      default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name} 
+      allowed_return_urls:
+        - ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
+%{ for subdomain in apps_sub_domains ~}
+        - ${enable_https ? "https" : "http"}://${subdomain}.${domain_name}
+%{ endfor ~}
+      methods:
+        password:
+          enabled: ${enable_password_authentication}
+        totp:
+          config:
+            issuer: Kratos
+          enabled: false
+        lookup_secret:
+          enabled: false
+        link:
+          enabled: false
+        code:
+          enabled: true
+        oidc:
+          enabled: ${enable_github_authentication}
+%{ if enable_github_authentication ~}
+          config:
+            providers:
+              - id: github
+                provider: github
+                client_id: ${github_client_id}
+                client_secret: ${github_client_secret}
+                mapper_url: "file:///etc/config/github.data-mapping.jsonnet"
+                scope:
+                  - user:email
+%{ endif ~}
+      flows:
+        error:
+          ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/error
+
+        settings:
+          ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/settings
+          privileged_session_max_age: 15m
+          required_aal: highest_available
+
+        recovery:
+          enabled: true
+          ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/recovery
+          use: code
+
+        verification:
+          enabled: true
+          ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/verification
+          use: code
+          after:
+            default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
+
+        logout:
+          after:
+            default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/login
+
+        login:
+          ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/login
+          lifespan: 10m
+
+        registration:
+          enabled: true
+          lifespan: 10m
+          ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/registration
+          after:
+            password:
+              default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
+              hooks:
+                - hook: session
+            oidc:
+              default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
+              hooks:
+                - hook: session
+ 
+  automigration:
+    enabled: true
+  identitySchemas:
+%{ if enable_github_authentication ~}
+    "github.data-mapping.jsonnet": |
+      local claims = {
+        email_verified: false
+      } + std.extVar('claims');
+      {
+        identity: {
+          traits: {
+            // Allowing unverified email addresses enables account
+            // enumeration attacks, especially if the value is used for
+            // e.g. verification or as a password login identifier.
+            //
+            // Therefore we only return the email if it (a) exists and (b) is marked verified
+            // by GitHub.
+            [if "email" in claims && claims.email_verified then "email" else null]: claims.email,
+            [if "email" in claims && claims.email_verified then "nickname" else null]: claims.nickname,
+            [if "email" in claims && claims.email_verified && "name" in claims then "name" else null]: claims.name,
+          },
+        },
+      }
+%{ endif ~}
+    "identity.default.schema.json": |
+%{ if enable_github_authentication ~}
+      {
+        "$id": "https://schemas.ory.sh/presets/kratos/identity.email.schema.json",
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Person",
+        "type": "object",
+        "properties": {
+          "traits": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string",
+                "format": "email",
+                "title": "E-Mail"
+              },
+              "nickname": {
+                "type": "string",
+                "title": "Nickname"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name"
+              }
+            },
+            "required": [
+              "email"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+%{ else ~}
+      {
+        "$id": "https://schemas.ory.sh/presets/kratos/quickstart/email-password/identity.schema.json",
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Person",
+        "type": "object",
+        "properties": {
+          "traits": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string",
+                "format": "email",
+                "title": "E-Mail",
+                "minLength": 3,
+                "ory.sh/kratos": {
+                  "credentials": {
+                    "password": {
+                      "identifier": true
+                    }
+                  },
+                  "recovery": {
+                    "via": "email"
+                  }
+                }
+              },
+              "name": {
+                "type": "object",
+                "properties": {
+                  "first": {
+                    "title": "First Name",
+                    "type": "string"
+                  },
+                  "last": {
+                    "title": "Last Name",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "required": [
+              "email"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+%{ endif ~}

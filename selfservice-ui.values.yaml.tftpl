@@ -1,0 +1,57 @@
+ingress:
+  enabled: true
+%{ if enable_https ~}
+  className: "${ingress_class_name}"
+  annotations:
+%{ if ingress_class_name == "traefik" ~}
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+%{ endif ~}
+%{ if ingress_class_name == "nginx" ~}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+%{ endif ~}
+%{ else ~}
+  className: ""
+%{ endif ~}
+  hosts:
+    - host: ${self_service_ui_sub_domain}.${domain_name}
+      paths:
+        - path: /
+          pathType: Prefix
+%{ if enable_https ~}
+  tls:
+    - hosts:
+        - ${self_service_ui_sub_domain}.${domain_name}
+      secretName: ${ssl_secret_name != "" ? "${ssl_secret_name}-ui" : "${selfservice_ui_release_name}-tls"}
+%{ endif ~}
+%{ if container_image_selfservice_ui != "" ~}
+image:
+  repository: ${container_image_selfservice_ui}
+  tag: ${container_image_selfservice_ui_tag}
+  pullPolicy: IfNotPresent
+%{ endif ~}
+
+nameOverride: ${selfservice_ui_release_name}
+
+%{ if registry_auth_enabled ~}
+imagePullSecrets:
+  - name: ${image_pull_secret_name}
+%{ else ~}
+imagePullSecrets: []
+%{ endif ~}
+
+# -- Set this to ORY Kratos's Admin URL
+kratosAdminUrl: "http://${kratos_release_name}-admin.${kratos_namespace}.svc.cluster.local."
+
+# -- Set this to ORY Kratos's public URL
+kratosPublicUrl: "http://${kratos_release_name}-public.${kratos_namespace}.svc.cluster.local."
+
+# -- Set this to ORY Kratos's public URL accessible from the outside world.
+kratosBrowserUrl: ${enable_https ? "https" : "http"}://${kratos_sub_domain}.${domain_name}
+
+config:
+  csrfCookieName: "__rd-"
+#  secrets:
+#    cookie:
+#    csrfCookie:
