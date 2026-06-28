@@ -45,7 +45,7 @@ variable "kratos_release_name" {
 }
 
 variable "kratos_chart_version" {
-  default = "0.58.0"
+  default = "0.61.1"
 }
 
 variable "kratos_namespace" {
@@ -102,7 +102,7 @@ variable "selfservice_ui_namespace" {
 }
 
 variable "selfservice_ui_chart_version" {
-  default     = "0.58.0"
+  default     = "0.61.1"
   description = "Helm chart version for the selfservice UI"
 }
 
@@ -180,6 +180,19 @@ variable "apps_sub_domains" {
   description = "Specify the list of app sub-domains to enable with Kratos"
   type        = list(string)
   default     = ["app"]
+}
+
+variable "api_sub_domain" {
+  description = "Sub-domain of the TwinStreak API server (used for after-registration webhook URL)"
+  type        = string
+  default     = "api"
+}
+
+variable "kratos_webhook_secret" {
+  description = "Shared secret included in the Authorization header when Kratos calls the after-registration webhook"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
 variable "enable_https" {

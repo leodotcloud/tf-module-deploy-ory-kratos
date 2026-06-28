@@ -107,6 +107,8 @@ resource "helm_release" "kratos" {
       ssl_secret_name                = var.ssl_secret_name
       selfservice_ui_release_name    = var.selfservice_ui_release_name
       ingress_class_name             = var.ingress_class_name
+      api_sub_domain                 = var.api_sub_domain
+      kratos_webhook_secret          = var.kratos_webhook_secret
     })
   ]
 
