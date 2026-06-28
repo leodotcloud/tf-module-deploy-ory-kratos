@@ -54,11 +54,11 @@ kratos:
       default:
         - ${kratos_secret_key}
     cookies:
-      domain: ${domain_name}
+      domain: .${domain_name}
       same_site: Lax
     session:
       cookie:
-        domain: ${domain_name}
+        domain: .${domain_name}
         same_site: Lax
     identity:
       default_schema_id: default
@@ -134,19 +134,44 @@ kratos:
           enabled: true
           lifespan: 10m
           ui_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}/registration
+          enable_legacy_one_step: true
           after:
             password:
               default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
               hooks:
                 - hook: session
+                - hook: web_hook
+                  config:
+                    url: ${enable_https ? "https" : "http"}://${api_sub_domain}.${domain_name}/api/v1/webhooks/kratos/after-registration
+                    method: POST
+                    body: file:///etc/config/after-registration.webhook.jsonnet
+                    headers:
+                      Authorization: Bearer ${kratos_webhook_secret}
+                    response:
+                      ignore: true
+                      parse: false
             oidc:
               default_browser_return_url: ${enable_https ? "https" : "http"}://${self_service_ui_sub_domain}.${domain_name}
               hooks:
                 - hook: session
+                - hook: web_hook
+                  config:
+                    url: ${enable_https ? "https" : "http"}://${api_sub_domain}.${domain_name}/api/v1/webhooks/kratos/after-registration
+                    method: POST
+                    body: file:///etc/config/after-registration.webhook.jsonnet
+                    headers:
+                      Authorization: Bearer ${kratos_webhook_secret}
+                    response:
+                      ignore: true
+                      parse: false
  
   automigration:
     enabled: true
   identitySchemas:
+    "after-registration.webhook.jsonnet": |
+      function(ctx) {
+        identity: ctx.identity,
+      }
 %{ if enable_github_authentication ~}
     "github.data-mapping.jsonnet": |
       local claims = {
